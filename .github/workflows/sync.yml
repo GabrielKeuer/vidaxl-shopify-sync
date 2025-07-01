@@ -26,30 +26,12 @@ jobs:
       run: |
         python transform_vidaxl.py
     
-    - name: Upload CSV as artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: matrixify-update
-        path: matrixify_update.csv
-        retention-days: 1
-    
-    - name: Create Release
-      id: create_release
-      uses: actions/create-release@v1
+    - name: Commit and push CSV
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add matrixify_update.csv
+        git commit -m "Update VidaXL prices and inventory - $(date +'%Y-%m-%d %H:%M')" || echo "No changes"
+        git push
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        tag_name: sync-${{ github.run_number }}
-        release_name: Sync ${{ github.run_number }}
-        draft: false
-        prerelease: false
-    
-    - name: Upload CSV to Release
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./matrixify_update.csv
-        asset_name: matrixify_update.csv
-        asset_content_type: text/csv
