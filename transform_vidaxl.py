@@ -7,15 +7,15 @@ from io import StringIO
 VIDAXL_URL = "https://transport.productsup.io/de8254c69e698a08e904/channel/188044/vidaXL_dk_dropshipping.csv"
 
 # Pris markup settings
-PRICE_MARKUP = 1.45  # 45% markup
-ROUND_TO = 5  # Rund til nærmeste 5 kr
+PRICE_MARKUP = 1.60  # 60% markup
 
 def calculate_retail_price(b2b_price):
-    """Beregn salgspris med markup og afrunding"""
+    """Beregn salgspris med markup og afrunding til 9"""
     try:
+        import math
         price = float(b2b_price) * PRICE_MARKUP
-        # Rund op til nærmeste 5
-        return int(ROUND_TO * round(price / ROUND_TO))
+        # Rund op til nærmeste 10, træk 1 fra så det ender på 9
+        return int(10 * math.ceil(price / 10) - 1)
     except:
         return 0
 
