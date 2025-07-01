@@ -44,13 +44,13 @@ for row in reader:
         'Variant Price': calculate_retail_price(b2b_price),
         'Variant Cost': b2b_price,  # ← TILFØJ DENNE LINJE
         'Variant Inventory Qty': stock,
-        'Command': 'UPDATE'
+        'Variant Command': 'UPDATE'
         })
         processed += 1
 
 # Write output
 with open('matrixify_update.csv', 'w', newline='') as f:
-    writer = csv.DictWriter(f, fieldnames=['Variant SKU', 'Variant Price', 'Variant Cost', 'Variant Inventory Qty', 'Command'])
+    writer = csv.DictWriter(f, fieldnames=['Variant SKU', 'Variant Price', 'Variant Cost', 'Variant Inventory Qty', 'Variant Command'])
     writer.writeheader()
     writer.writerows(output_rows)
 
