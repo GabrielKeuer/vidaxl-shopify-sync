@@ -35,3 +35,15 @@ jobs:
         git push
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Send email on failure
+      if: failure()
+      uses: dawidd6/action-send-mail@v3
+      with:
+        server_address: smtp.gmail.com
+        server_port: 587
+        username: ${{ secrets.EMAIL }}
+        password: ${{ secrets.EMAIL_PASSWORD }}
+        subject: VidaXL Sync Failed!
+        to: info@boligretning.dk
+        body: VidaXL sync workflow failed. Check logs at https://github.com/GabrielKeuer/vidaxl-shopify-sync/actions
