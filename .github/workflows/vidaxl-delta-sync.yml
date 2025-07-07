@@ -1,0 +1,33 @@
+name: VidaXL Delta Sync (Kun ændringer)
+on:
+  schedule:
+    - cron: '15 * * * *'  # 15 min efter hver time
+  workflow_dispatch:
+
+jobs:
+  delta-sync:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+    
+    - name: Install dependencies
+      run: |
+        pip install requests pandas
+    
+    - name: Run delta transform script
+      run: |
+        python transform_vidaxl_delta.py
+    
+    - name: Commit changes
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add matrixify_delta_update.csv last_prices.csv
+        git commit -m "Delta update - $(date +'%Y-%m-%d %H:%M')" || echo "No changes"
+        git push
