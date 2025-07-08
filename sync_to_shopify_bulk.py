@@ -30,8 +30,11 @@ def read_csv_changes():
 
 def save_update_report(changes, updated_skus):
     """Gem detaljeret rapport over hvad der blev opdateret"""
+    # Opret reports mappe hvis den ikke findes
+    os.makedirs('reports', exist_ok=True)
+    
     report_time = datetime.now().strftime('%Y%m%d_%H%M%S')
-    report_file = f'update_report_{report_time}.csv'
+    report_file = f'reports/update_report_{report_time}.csv'  # <-- Tilføj reports/
     
     with open(report_file, 'w', newline='') as f:
         writer = csv.DictWriter(f, fieldnames=[
@@ -50,7 +53,7 @@ def save_update_report(changes, updated_skus):
     
     print(f"📄 Report saved: {report_file}")
     return report_file
-
+    
 def find_and_update_smart(changes):
     """Smart approach - find IDs og opdater i samme flow"""
     print("🧠 Using smart batch approach...")
