@@ -1,8 +1,10 @@
-name: VidaXL Delta Sync (Kun ændringer)
+name: VidaXL Delta Sync (DISABLED - Using Direct Sync)
+
 on:
-  schedule:
-    - cron: '15 * * * *'  # 15 min efter hver time
-  workflow_dispatch:
+  # DISABLED - Uncomment to re-enable
+  # schedule:
+  #   - cron: '15 * * * *'  # 15 min efter hver time
+  workflow_dispatch:  # Kan stadig køres manuelt hvis nødvendigt
 
 jobs:
   delta-sync:
