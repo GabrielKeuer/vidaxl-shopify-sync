@@ -201,15 +201,17 @@ def find_and_update_smart(changes):
                 }}
                 """
                 
-                # Opdater inventory hvis vi har inventory level ID
-                if v['inventory_level_id']:
+                # Opdater inventory hvis vi har inventory item ID - RETTET MUTATION
+                if v['inventory_item_id']:
                     quantity_delta = change['inventory'] - v['current_available']
                     if quantity_delta != 0:
                         mutation += f"""
                         inv{update_count}: inventoryAdjustQuantities(input: {{
+                            name: "available",
                             reason: "correction",
                             changes: [{{
-                                inventoryLevelId: "{v['inventory_level_id']}",
+                                inventoryItemId: "{v['inventory_item_id']}",
+                                locationId: "gid://shopify/Location/{LOCATION_ID}",
                                 delta: {quantity_delta}
                             }}]
                         }}) {{
