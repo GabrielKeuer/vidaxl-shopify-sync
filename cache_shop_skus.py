@@ -14,11 +14,12 @@ def fetch_all_skus_graphql():
     all_skus = set()
     has_next_page = True
     cursor = None
+    page_count = 0
     
     while has_next_page:
         query = """
         query getVariants($cursor: String) {
-          productVariants(first: 2000, after: $cursor) {
+          productVariants(first: 250, after: $cursor) {
             edges {
               node {
                 sku
@@ -66,8 +67,9 @@ def fetch_all_skus_graphql():
         # Pagination
         has_next_page = variants['pageInfo']['hasNextPage']
         cursor = variants['pageInfo']['endCursor']
+        page_count += 1
         
-        print(f"  Progress: {len(all_skus)} SKUs... (Page complete)")
+        print(f"  Progress: {len(all_skus)} SKUs... (Page {page_count})")
     
     return sorted(list(all_skus))
 
@@ -93,6 +95,9 @@ def main():
         
     except Exception as e:
         print(f"❌ Error: {e}")
+        import traceback
+        traceback.print_exc()
+        
         # Create empty file so workflows don't fail
         with open('shop_skus.json', 'w') as f:
             json.dump({
