@@ -2,6 +2,8 @@ import os
 import csv
 import time
 import requests
+import json
+from datetime import datetime
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -37,6 +39,7 @@ def find_and_update_smart(changes):
     """Smart update: Find variants and update in same batch"""
     total_updated = 0
     total_not_found = 0
+    update_log = []  # Log for rapport
     
     # Process in batches
     for i in range(0, len(changes), BATCH_SIZE):
@@ -94,9 +97,20 @@ def find_and_update_smart(changes):
                         "availableQuantity": int(change['inventory'])
                     }]
                 })
+                # Log successful mapping
+                update_log.append({
+                    'sku': change['sku'],
+                    'status': 'found',
+                    'price': change['price'],
+                    'inventory': change['inventory']
+                })
             else:
                 total_not_found += 1
                 print(f"⚠️ SKU not found: {change['sku']}")
+                update_log.append({
+                    'sku': change['sku'],
+                    'status': 'not_found'
+                })
         
         # Execute bulk update if we have variants
         if variants_to_update:
@@ -144,6 +158,12 @@ def find_and_update_smart(changes):
         # Rate limit pause
         time.sleep(0.5)
     
+    # Save detailed log
+    log_file = f"reports/update_details_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    os.makedirs('reports', exist_ok=True)
+    with open(log_file, 'w') as f:
+        json.dump(update_log, f, indent=2)
+    
     return total_updated, total_not_found
 
 def main():
@@ -167,12 +187,33 @@ def main():
     updated, not_found = find_and_update_smart(changes)
     elapsed = time.time() - start_time
     
+    # Final results
+    results = {
+        'timestamp': datetime.now().isoformat(),
+        'test_mode': TEST_MODE,
+        'total_changes': len(changes),
+        'updated': updated,
+        'not_found': not_found,
+        'elapsed_seconds': round(elapsed, 2),
+        'elapsed_minutes': round(elapsed/60, 1),
+        'speed_per_minute': round(updated/(elapsed/60)) if elapsed > 0 else 0
+    }
+    
     print(f"\n📊 FINAL RESULTS:")
-    print(f"  Total changes: {len(changes):,}")
-    print(f"  Updated: {updated:,}")
-    print(f"  Not found: {not_found:,}")
-    print(f"  Time: {elapsed/60:.1f} minutes")
-    print(f"  Speed: {updated/(elapsed/60):.0f} products/minute")
+    print(f"  Total changes: {results['total_changes']:,}")
+    print(f"  Updated: {results['updated']:,}")
+    print(f"  Not found: {results['not_found']:,}")
+    print(f"  Time: {results['elapsed_minutes']} minutes")
+    print(f"  Speed: {results['speed_per_minute']} products/minute")
+    
+    # Create reports directory if it doesn't exist
+    os.makedirs('reports', exist_ok=True)
+    
+    # Save report
+    report_file = f"reports/update_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    with open(report_file, 'w') as f:
+        json.dump(results, f, indent=2)
+    print(f"\n📄 Report saved to: {report_file}")
 
 if __name__ == "__main__":
     main()
