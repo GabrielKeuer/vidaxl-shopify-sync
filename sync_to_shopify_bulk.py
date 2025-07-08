@@ -28,76 +28,28 @@ def read_csv_changes():
         print("❌ No matrixify_delta_update.csv found!")
         return []
 
-def batch_update_variants(changes):
-    """Opdater i batches af 50 - ligesom vi henter!"""
-    print(f"🚀 Starting batch updates for {len(changes)} products...")
+def save_update_report(changes, updated_skus):
+    """Gem detaljeret rapport over hvad der blev opdateret"""
+    report_time = datetime.now().strftime('%Y%m%d_%H%M%S')
+    report_file = f'update_report_{report_time}.csv'
     
-    updated = 0
-    failed = 0
-    batch_size = 50  # Shopify kan håndtere dette fint
+    with open(report_file, 'w', newline='') as f:
+        writer = csv.DictWriter(f, fieldnames=[
+            'SKU', 'Status', 'New_Price', 'New_Cost', 'New_Stock'
+        ])
+        writer.writeheader()
+        
+        for change in changes:
+            writer.writerow({
+                'SKU': change['sku'],
+                'Status': 'Updated' if change['sku'] in updated_skus else 'Not Found',
+                'New_Price': change['price'],
+                'New_Cost': change['cost'],
+                'New_Stock': change['inventory']
+            })
     
-    for i in range(0, len(changes), batch_size):
-        batch = changes[i:i+batch_size]
-        
-        # Byg mutation for batch
-        mutation = "mutation batchUpdate {\n"
-        
-        for idx, change in enumerate(batch):
-            # Product variant update
-            mutation += f"""
-            variant{idx}: productVariantUpdate(input: {{
-                id: "gid://shopify/ProductVariant/TEMP_{change['sku']}",
-                price: "{change['price']}",
-                cost: "{change['cost']}"
-            }}) {{
-                productVariant {{ id }}
-                userErrors {{ field message }}
-            }}
-            """
-            
-            # Inventory update
-            mutation += f"""
-            inv{idx}: inventorySetQuantities(input: {{
-                reason: "correction",
-                quantities: [{{
-                    inventoryItemId: "gid://shopify/InventoryItem/TEMP_{change['sku']}",
-                    locationId: "gid://shopify/Location/{LOCATION_ID}",
-                    quantity: {change['inventory']}
-                }}]
-            }}) {{
-                inventoryAdjustmentGroup {{ id }}
-                userErrors {{ field message }}
-            }}
-            """
-        
-        mutation += "\n}"
-        
-        # Send batch
-        response = requests.post(
-            f"https://{SHOPIFY_STORE}/admin/api/2024-01/graphql.json",
-            headers={
-                'X-Shopify-Access-Token': SHOPIFY_TOKEN,
-                'Content-Type': 'application/json'
-            },
-            json={'query': mutation}
-        )
-        
-        if response.status_code == 200:
-            updated += len(batch)
-        else:
-            failed += len(batch)
-            print(f"  ❌ Batch failed: {response.text[:200]}")
-        
-        # Progress
-        if updated % 1000 == 0:
-            elapsed = (i / len(changes)) * 100
-            print(f"  Progress: {updated:,} updated ({elapsed:.1f}%) ...")
-        
-        # Rate limit respect (2 req/sec)
-        time.sleep(0.5)
-    
-    print(f"✅ Complete! Updated: {updated:,} | Failed: {failed}")
-    return updated, failed
+    print(f"📄 Report saved: {report_file}")
+    return report_file
 
 def find_and_update_smart(changes):
     """Smart approach - find IDs og opdater i samme flow"""
@@ -105,6 +57,7 @@ def find_and_update_smart(changes):
     
     updated = 0
     not_found = 0
+    updated_skus = []  # Track hvilke SKUs blev opdateret
     batch_size = 100
     
     for i in range(0, len(changes), batch_size):
@@ -147,6 +100,7 @@ def find_and_update_smart(changes):
         # Now update found variants
         mutation = "mutation batchUpdate {\n"
         update_count = 0
+        batch_updated_skus = []  # Track denne batch
         
         for change in batch:
             if change['sku'] in variants:
@@ -174,6 +128,7 @@ def find_and_update_smart(changes):
                 }}
                 """
                 update_count += 1
+                batch_updated_skus.append(change['sku'])
             else:
                 not_found += 1
         
@@ -192,6 +147,7 @@ def find_and_update_smart(changes):
             
             if response.status_code == 200:
                 updated += update_count
+                updated_skus.extend(batch_updated_skus)  # Tilføj til samlet liste
             else:
                 print(f"  ❌ Error: {response.text[:200]}")
         
@@ -202,7 +158,7 @@ def find_and_update_smart(changes):
         # Rate limit
         time.sleep(0.5)
     
-    return updated, not_found
+    return updated, not_found, updated_skus  # Return også updated_skus
 
 def main():
     print(f"🚀 Shopify GraphQL Sync - {datetime.now()}")
@@ -222,7 +178,7 @@ def main():
     
     # Smart update
     start_time = time.time()
-    updated, not_found = find_and_update_smart(changes)
+    updated, not_found, updated_skus = find_and_update_smart(changes)  # Modtag updated_skus
     elapsed = time.time() - start_time
     
     print(f"\n📊 FINAL RESULTS:")
@@ -231,6 +187,11 @@ def main():
     print(f"  Not found: {not_found:,}")
     print(f"  Time: {elapsed/60:.1f} minutes")
     print(f"  Speed: {updated/(elapsed/60):.0f} products/minute")
+    
+    # Gem rapport
+    if len(changes) > 0:
+        report_file = save_update_report(changes, updated_skus)
+        print(f"\n✅ Check {report_file} for details!")
 
-if __name__ == "__main__":  # <-- RETTET HER (dobbelt underscore)
+if __name__ == "__main__":
     main()
