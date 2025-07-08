@@ -4,25 +4,45 @@ import os
 from datetime import datetime
 
 # Shopify credentials
-SHOPIFY_STORE = 'b7916a-38.myshopify.com'  # <-- Din rigtige URL
-SHOPIFY_TOKEN = os.environ['SHOPIFY_ACCESS_TOKEN']  # <-- Hentes fra GitHub Secrets
+SHOPIFY_STORE = 'b7916a-38.myshopify.com'
+SHOPIFY_TOKEN = os.environ['SHOPIFY_ACCESS_TOKEN']
 
-def fetch_all_skus():
-    """Hent alle SKUs fra Shopify via REST API"""
-    print(f"🔄 Fetching SKUs from {SHOPIFY_STORE}...")
+def fetch_all_skus_graphql():
+    """Hent alle SKUs via GraphQL - MEGET hurtigere!"""
+    print(f"🚀 Fetching SKUs via GraphQL...")
     
     all_skus = set()
-    page_info = None
+    has_next_page = True
+    cursor = None
     
-    while True:
-        # Build URL with pagination
-        url = f"https://{SHOPIFY_STORE}/admin/api/2024-01/products.json?fields=variants&limit=250"
-        if page_info:
-            url += f"&page_info={page_info}"
+    while has_next_page:
+        query = """
+        query getVariants($cursor: String) {
+          productVariants(first: 2000, after: $cursor) {
+            edges {
+              node {
+                sku
+              }
+            }
+            pageInfo {
+              hasNextPage
+              endCursor
+            }
+          }
+        }
+        """
         
-        response = requests.get(url, headers={
-            'X-Shopify-Access-Token': SHOPIFY_TOKEN
-        })
+        response = requests.post(
+            f"https://{SHOPIFY_STORE}/admin/api/2024-01/graphql.json",
+            headers={
+                'X-Shopify-Access-Token': SHOPIFY_TOKEN,
+                'Content-Type': 'application/json'
+            },
+            json={
+                'query': query,
+                'variables': {'cursor': cursor}
+            }
+        )
         
         if response.status_code != 200:
             print(f"❌ Error: {response.status_code}")
@@ -31,26 +51,23 @@ def fetch_all_skus():
             
         data = response.json()
         
-        # Extract SKUs from all variants
-        for product in data.get('products', []):
-            for variant in product.get('variants', []):
-                if variant.get('sku'):
-                    all_skus.add(str(variant['sku']).strip())
-        
-        # Check for next page
-        link_header = response.headers.get('Link', '')
-        if 'rel="next"' in link_header:
-            # Extract page_info from Link header
-            import re
-            match = re.search(r'page_info=([^&>]+)', link_header)
-            if match:
-                page_info = match.group(1)
-            else:
-                break
-        else:
+        if 'errors' in data:
+            print(f"❌ GraphQL errors: {data['errors']}")
             break
+            
+        variants = data['data']['productVariants']
         
-        print(f"  Progress: {len(all_skus)} SKUs...")
+        # Extract SKUs
+        for edge in variants['edges']:
+            sku = edge['node'].get('sku')
+            if sku and sku.strip():
+                all_skus.add(str(sku).strip())
+        
+        # Pagination
+        has_next_page = variants['pageInfo']['hasNextPage']
+        cursor = variants['pageInfo']['endCursor']
+        
+        print(f"  Progress: {len(all_skus)} SKUs... (Page complete)")
     
     return sorted(list(all_skus))
 
@@ -59,7 +76,7 @@ def main():
     
     try:
         # Fetch all SKUs
-        skus = fetch_all_skus()
+        skus = fetch_all_skus_graphql()
         print(f"✅ Found {len(skus)} total SKUs")
         
         # Save to JSON
