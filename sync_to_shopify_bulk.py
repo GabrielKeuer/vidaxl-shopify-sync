@@ -77,6 +77,9 @@ def find_and_update_smart(changes):
                 price
                 inventoryItem {{ 
                     id 
+                    unitCost {{
+                        amount
+                    }}
                     inventoryLevels(first: 10) {{
                         edges {{
                             node {{
@@ -154,11 +157,17 @@ def find_and_update_smart(changes):
                                     break
                             break
                 
+                # Get current cost
+                current_cost = '0'
+                if 'inventoryItem' in node and 'unitCost' in node['inventoryItem'] and node['inventoryItem']['unitCost']:
+                    current_cost = node['inventoryItem']['unitCost']['amount']
+                
                 variants[node['sku']] = {
                     'id': node['id'],
                     'inventory_item_id': node['inventoryItem']['id'] if 'inventoryItem' in node else None,
                     'inventory_level_id': inventory_level_id,
                     'current_price': node.get('price', '0'),
+                    'current_cost': current_cost,
                     'current_available': current_available
                 }
             
@@ -176,56 +185,69 @@ def find_and_update_smart(changes):
         mutation = "mutation batchUpdate {\n"
         update_count = 0
         batch_updated_skus = []
+        changes_made = 0
         
         for change in batch:
             if change['sku'] in variants:
                 v = variants[change['sku']]
+                mutation_parts = []
+                
+                # Track what changes
+                price_changed = float(v['current_price']) != float(change['price'])
+                cost_changed = float(v['current_cost']) != float(change['cost'])
+                inventory_changed = v['current_available'] != change['inventory']
                 
                 # DEBUG: Vis første 3
-                if update_count < 3:
+                if update_count < 3 and (price_changed or cost_changed or inventory_changed):
                     print(f"\n📦 SKU {change['sku']}:")
-                    print(f"   Current price: {v['current_price']} → New: {change['price']}")
-                    print(f"   Current stock: {v['current_available']} → New: {change['inventory']}")
+                    if price_changed:
+                        print(f"   Price: {v['current_price']} → {change['price']}")
+                    if cost_changed:
+                        print(f"   Cost: {v['current_cost']} → {change['cost']}")
+                    if inventory_changed:
+                        print(f"   Stock: {v['current_available']} → {change['inventory']}")
                 
-                # Opdater pris
-                mutation += f"""
-                v{update_count}: productVariantUpdate(input: {{
-                    id: "{v['id']}",
-                    price: {change['price']}
-                }}) {{
-                    productVariant {{ 
-                        id 
-                        price
-                    }}
-                    userErrors {{ field message }}
-                }}
-                """
-                
-                # Opdater inventory hvis vi har inventory item ID - RETTET MUTATION
-                if v['inventory_item_id']:
-                    quantity_delta = change['inventory'] - v['current_available']
-                    if quantity_delta != 0:
-                        mutation += f"""
-                        inv{update_count}: inventoryAdjustQuantities(input: {{
-                            name: "available",
-                            reason: "correction",
-                            changes: [{{
-                                inventoryItemId: "{v['inventory_item_id']}",
-                                locationId: "gid://shopify/Location/{LOCATION_ID}",
-                                delta: {quantity_delta}
-                            }}]
-                        }}) {{
-                            inventoryAdjustmentGroup {{ 
-                                id 
-                                reason
-                            }}
-                            userErrors {{ field message }}
+                # Opdater pris KUN hvis ændret
+                if price_changed:
+                    mutation_parts.append(f"""
+                    v{update_count}_price: productVariantUpdate(input: {{
+                        id: "{v['id']}",
+                        price: {change['price']}
+                    }}) {{
+                        productVariant {{ 
+                            id 
+                            price
                         }}
-                        """
+                        userErrors {{ field message }}
+                    }}
+                    """)
+                    changes_made += 1
                 
-                # Opdater cost hvis vi har inventory item ID
-                if v['inventory_item_id']:
-                    mutation += f"""
+                # Opdater inventory KUN hvis ændret
+                if inventory_changed and v['inventory_item_id']:
+                    quantity_delta = change['inventory'] - v['current_available']
+                    mutation_parts.append(f"""
+                    inv{update_count}: inventoryAdjustQuantities(input: {{
+                        name: "available",
+                        reason: "correction",
+                        changes: [{{
+                            inventoryItemId: "{v['inventory_item_id']}",
+                            locationId: "gid://shopify/Location/{LOCATION_ID}",
+                            delta: {quantity_delta}
+                        }}]
+                    }}) {{
+                        inventoryAdjustmentGroup {{ 
+                            id 
+                            reason
+                        }}
+                        userErrors {{ field message }}
+                    }}
+                    """)
+                    changes_made += 1
+                
+                # Opdater cost KUN hvis ændret
+                if cost_changed and v['inventory_item_id']:
+                    mutation_parts.append(f"""
                     cost{update_count}: inventoryItemUpdate(
                         id: "{v['inventory_item_id']}",
                         input: {{
@@ -238,17 +260,21 @@ def find_and_update_smart(changes):
                         }}
                         userErrors {{ field message }}
                     }}
-                    """
+                    """)
+                    changes_made += 1
                 
-                update_count += 1
-                batch_updated_skus.append(change['sku'])
+                # Tilføj mutations hvis der er ændringer
+                if mutation_parts:
+                    mutation += '\n'.join(mutation_parts)
+                    update_count += 1
+                    batch_updated_skus.append(change['sku'])
             else:
                 not_found += 1
         
         mutation += "\n}"
         
         if update_count > 0:
-            print(f"\n📤 SENDING BATCH: {update_count} updates")
+            print(f"\n📤 SENDING BATCH: {update_count} products, {changes_made} changes")
             
             try:
                 # Send updates
@@ -289,6 +315,8 @@ def find_and_update_smart(changes):
                     
             except Exception as e:
                 print(f"  ❌ Error sending mutation: {e}")
+        else:
+            print(f"\n⏭️ BATCH {i//batch_size + 1}: No changes needed")
         
         # Rate limit
         time.sleep(1)
