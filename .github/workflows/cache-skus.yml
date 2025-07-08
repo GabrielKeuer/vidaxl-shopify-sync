@@ -1,0 +1,34 @@
+name: Cache Shop SKUs
+
+on:
+  schedule:
+    - cron: '0 3 * * *'  # Kl 3 om natten
+  workflow_dispatch:      # Manuel kørsel
+
+jobs:
+  cache-skus:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+    
+    - name: Install dependencies
+      run: pip install requests
+    
+    - name: Cache shop SKUs
+      env:
+        SHOPIFY_ACCESS_TOKEN: ${{ secrets.SHOPIFY_ACCESS_TOKEN }}
+      run: python cache_shop_skus.py
+    
+    - name: Commit shop_skus.json
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add shop_skus.json
+        git commit -m "Update shop SKUs - $(date +'%Y-%m-%d')" || echo "No changes"
+        git push
