@@ -60,7 +60,7 @@ def find_and_update_smart(changes):
     updated = 0
     not_found = 0
     updated_skus = []
-    batch_size = 50  # Reducer batch size for stabilitet
+    batch_size = 50
     
     for i in range(0, len(changes), batch_size):
         batch = changes[i:i+batch_size]
@@ -93,41 +93,76 @@ def find_and_update_smart(changes):
         }}
         """
         
-        response = requests.post(
-            f"https://{SHOPIFY_STORE}/admin/api/2024-01/graphql.json",
-            headers={
-                'X-Shopify-Access-Token': SHOPIFY_TOKEN,
-                'Content-Type': 'application/json'
-            },
-            json={'query': find_query}
-        )
-        
-        variants = {}
-        data = response.json()
-        
-        print(f"\n🔍 BATCH {i//batch_size + 1}: Found {len(data['data']['productVariants']['edges'])} variants")
-        
-        for edge in data['data']['productVariants']['edges']:
-            node = edge['node']
+        try:
+            response = requests.post(
+                f"https://{SHOPIFY_STORE}/admin/api/2024-01/graphql.json",
+                headers={
+                    'X-Shopify-Access-Token': SHOPIFY_TOKEN,
+                    'Content-Type': 'application/json'
+                },
+                json={'query': find_query}
+            )
             
-            # Find inventory level for our location
-            inventory_level_id = None
-            current_available = 0
+            # Check HTTP response
+            if response.status_code != 200:
+                print(f"❌ HTTP Error {response.status_code}: {response.text[:500]}")
+                continue
+                
+            data = response.json()
             
-            for inv_edge in node['inventoryItem']['inventoryLevels']['edges']:
-                inv_node = inv_edge['node']
-                if LOCATION_ID in inv_node['location']['id']:
-                    inventory_level_id = inv_node['id']
-                    current_available = inv_node['available']
-                    break
+            # Check for GraphQL errors
+            if 'errors' in data:
+                print(f"❌ GraphQL errors in find query:")
+                for error in data['errors'][:3]:  # Vis max 3 errors
+                    print(f"   - {error.get('message', error)}")
+                continue
+                
+            # Check response structure
+            if 'data' not in data:
+                print(f"❌ No 'data' field in response. Keys: {list(data.keys())}")
+                continue
+                
+            if 'productVariants' not in data['data']:
+                print(f"❌ No 'productVariants' in data. Keys: {list(data['data'].keys())}")
+                continue
             
-            variants[node['sku']] = {
-                'id': node['id'],
-                'inventory_item_id': node['inventoryItem']['id'],
-                'inventory_level_id': inventory_level_id,
-                'current_price': node['price'],
-                'current_available': current_available
-            }
+            variants = {}
+            variant_edges = data['data']['productVariants']['edges']
+            
+            print(f"\n🔍 BATCH {i//batch_size + 1}: Found {len(variant_edges)} variants")
+            
+            for edge in variant_edges:
+                node = edge['node']
+                
+                # Find inventory level for our location
+                inventory_level_id = None
+                current_available = 0
+                
+                if 'inventoryItem' in node and 'inventoryLevels' in node['inventoryItem']:
+                    for inv_edge in node['inventoryItem']['inventoryLevels']['edges']:
+                        inv_node = inv_edge['node']
+                        if LOCATION_ID in inv_node['location']['id']:
+                            inventory_level_id = inv_node['id']
+                            current_available = inv_node['available']
+                            break
+                
+                variants[node['sku']] = {
+                    'id': node['id'],
+                    'inventory_item_id': node['inventoryItem']['id'] if 'inventoryItem' in node else None,
+                    'inventory_level_id': inventory_level_id,
+                    'current_price': node.get('price', '0'),
+                    'current_available': current_available
+                }
+            
+        except requests.exceptions.RequestException as e:
+            print(f"❌ Network error: {e}")
+            continue
+        except json.JSONDecodeError as e:
+            print(f"❌ JSON decode error: {e}")
+            continue
+        except Exception as e:
+            print(f"❌ Unexpected error in find query: {e}")
+            continue
         
         # Now update found variants
         mutation = "mutation batchUpdate {\n"
@@ -144,7 +179,7 @@ def find_and_update_smart(changes):
                     print(f"   Current price: {v['current_price']} → New: {change['price']}")
                     print(f"   Current stock: {v['current_available']} → New: {change['inventory']}")
                 
-                # Opdater pris (UDEN cost)
+                # Opdater pris
                 mutation += f"""
                 v{update_count}: productVariantUpdate(input: {{
                     id: "{v['id']}",
@@ -158,7 +193,7 @@ def find_and_update_smart(changes):
                 }}
                 """
                 
-                # Opdater inventory - beregn delta
+                # Opdater inventory hvis vi har inventory level ID
                 if v['inventory_level_id']:
                     quantity_delta = change['inventory'] - v['current_available']
                     if quantity_delta != 0:
@@ -178,21 +213,22 @@ def find_and_update_smart(changes):
                         }}
                         """
                 
-                # Opdater cost separat via inventoryItem
-                mutation += f"""
-                cost{update_count}: inventoryItemUpdate(
-                    id: "{v['inventory_item_id']}",
-                    input: {{
-                        cost: {change['cost']}
+                # Opdater cost hvis vi har inventory item ID
+                if v['inventory_item_id']:
+                    mutation += f"""
+                    cost{update_count}: inventoryItemUpdate(
+                        id: "{v['inventory_item_id']}",
+                        input: {{
+                            cost: {change['cost']}
+                        }}
+                    ) {{
+                        inventoryItem {{
+                            id
+                            unitCost {{ amount }}
+                        }}
+                        userErrors {{ field message }}
                     }}
-                ) {{
-                    inventoryItem {{
-                        id
-                        unitCost {{ amount }}
-                    }}
-                    userErrors {{ field message }}
-                }}
-                """
+                    """
                 
                 update_count += 1
                 batch_updated_skus.append(change['sku'])
@@ -204,39 +240,48 @@ def find_and_update_smart(changes):
         if update_count > 0:
             print(f"\n📤 SENDING BATCH: {update_count} updates")
             
-            # Send updates
-            response = requests.post(
-                f"https://{SHOPIFY_STORE}/admin/api/2024-01/graphql.json",
-                headers={
-                    'X-Shopify-Access-Token': SHOPIFY_TOKEN,
-                    'Content-Type': 'application/json'
-                },
-                json={'query': mutation}
-            )
-            
-            if response.status_code == 200:
-                result_data = response.json()
+            try:
+                # Send updates
+                response = requests.post(
+                    f"https://{SHOPIFY_STORE}/admin/api/2024-01/graphql.json",
+                    headers={
+                        'X-Shopify-Access-Token': SHOPIFY_TOKEN,
+                        'Content-Type': 'application/json'
+                    },
+                    json={'query': mutation}
+                )
                 
-                # Check for errors
-                if 'errors' in result_data:
-                    print(f"  ⚠️ GraphQL errors: {result_data['errors']}")
-                
-                # Check mutation results
-                errors_found = False
-                for key, value in result_data.get('data', {}).items():
-                    if 'userErrors' in value and value['userErrors']:
-                        print(f"  ❌ Error in {key}: {value['userErrors']}")
-                        errors_found = True
-                
-                if not errors_found:
-                    updated += update_count
-                    updated_skus.extend(batch_updated_skus)
-                    print(f"  ✅ Batch successful!")
-            else:
-                print(f"  ❌ HTTP Error {response.status_code}: {response.text[:200]}")
+                if response.status_code == 200:
+                    result_data = response.json()
+                    
+                    # Check for GraphQL errors
+                    if 'errors' in result_data:
+                        print(f"  ⚠️ GraphQL errors in mutation:")
+                        for error in result_data['errors'][:5]:  # Max 5 errors
+                            print(f"     - {error.get('message', error)}")
+                    
+                    # Check mutation results
+                    errors_found = False
+                    if 'data' in result_data:
+                        for key, value in result_data['data'].items():
+                            if value and 'userErrors' in value and value['userErrors']:
+                                print(f"  ❌ Error in {key}: {value['userErrors']}")
+                                errors_found = True
+                    
+                    if not errors_found and 'data' in result_data:
+                        updated += update_count
+                        updated_skus.extend(batch_updated_skus)
+                        print(f"  ✅ Batch successful!")
+                    else:
+                        print(f"  ⚠️ Batch completed with some errors")
+                else:
+                    print(f"  ❌ HTTP Error {response.status_code}: {response.text[:200]}")
+                    
+            except Exception as e:
+                print(f"  ❌ Error sending mutation: {e}")
         
         # Rate limit
-        time.sleep(1)  # Lidt mere tid mellem requests
+        time.sleep(1)
     
     return updated, not_found, updated_skus
 
