@@ -1,0 +1,26 @@
+name: TEST - Shopify Sync (100 products)
+
+on:
+  workflow_dispatch:  # Kun manuel kørsel
+
+jobs:
+  test-sync:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+    
+    - name: Install dependencies
+      run: pip install requests
+    
+    - name: Test Shopify sync
+      env:
+        SHOPIFY_ACCESS_TOKEN: ${{ secrets.SHOPIFY_ACCESS_TOKEN }}
+      run: |
+        echo "🧪 Running TEST sync with 100 products only"
+        python sync_to_shopify_bulk.py
