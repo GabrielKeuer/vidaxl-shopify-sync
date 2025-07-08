@@ -1,0 +1,36 @@
+name: VidaXL Direct Sync (Shopify Compare)
+
+on:
+  schedule:
+    - cron: '15 * * * *'  # Kører hvert :15
+  workflow_dispatch:       # Manuel kørsel
+
+jobs:
+  direct-sync:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+    
+    - name: Install dependencies
+      run: |
+        pip install requests pandas
+    
+    - name: Run direct sync
+      env:
+        SHOPIFY_ACCESS_TOKEN: ${{ secrets.SHOPIFY_ACCESS_TOKEN }}
+      run: |
+        python sync_vidaxl_direct.py
+    
+    - name: Commit changes
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add matrixify_delta_update.csv
+        git commit -m "Direct sync update - $(date +'%Y-%m-%d %H:%M')" || echo "No changes"
+        git push
