@@ -60,7 +60,7 @@ def find_and_update_smart(changes):
     updated = 0
     not_found = 0
     updated_skus = []
-    batch_size = 50
+    batch_size = 25
     
     for i in range(0, len(changes), batch_size):
         batch = changes[i:i+batch_size]
