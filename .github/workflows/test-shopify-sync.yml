@@ -24,3 +24,11 @@ jobs:
       run: |
         echo "🧪 Running TEST sync with 100 products only"
         python sync_to_shopify_bulk.py
+    
+    - name: Commit report
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add reports/
+        git commit -m "Add update report - $(date +'%Y-%m-%d %H:%M')" || echo "No report generated"
+        git push
