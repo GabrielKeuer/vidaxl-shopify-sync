@@ -207,10 +207,18 @@ def find_and_update_smart(changes):
 def main():
     print(f"🚀 Shopify GraphQL Sync - {datetime.now()}")
     
+    # TEST MODE - kun første 100 produkter
+    TEST_MODE = True
+    
     # Læs ændringer
     changes = read_csv_changes()
     if not changes:
         return
+    
+    # TILFØJ DISSE LINJER:
+    if TEST_MODE and len(changes) > 100:
+        print("⚠️ TEST MODE: Only processing first 100 changes")
+        changes = changes[:100]
     
     # Smart update
     start_time = time.time()
@@ -224,5 +232,5 @@ def main():
     print(f"  Time: {elapsed/60:.1f} minutes")
     print(f"  Speed: {updated/(elapsed/60):.0f} products/minute")
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # <-- RETTET HER (dobbelt underscore)
     main()
