@@ -66,7 +66,7 @@ def find_and_update_smart(changes):
         batch = changes[i:i+batch_size]
         sku_conditions = ' OR '.join([f'sku:{c["sku"]}' for c in batch])
         
-        # First find variants
+        # First find variants - RETTET QUERY
         find_query = f"""
         query {{
           productVariants(first: {batch_size}, query: "{sku_conditions}") {{
@@ -82,7 +82,10 @@ def find_and_update_smart(changes):
                             node {{
                                 id
                                 location {{ id }}
-                                available
+                                quantities(names: ["available"]) {{
+                                    name
+                                    quantity
+                                }}
                             }}
                         }}
                     }}
@@ -113,7 +116,7 @@ def find_and_update_smart(changes):
             # Check for GraphQL errors
             if 'errors' in data:
                 print(f"❌ GraphQL errors in find query:")
-                for error in data['errors'][:3]:  # Vis max 3 errors
+                for error in data['errors'][:3]:
                     print(f"   - {error.get('message', error)}")
                 continue
                 
@@ -143,7 +146,12 @@ def find_and_update_smart(changes):
                         inv_node = inv_edge['node']
                         if LOCATION_ID in inv_node['location']['id']:
                             inventory_level_id = inv_node['id']
-                            current_available = inv_node['available']
+                            
+                            # Find available quantity
+                            for q in inv_node.get('quantities', []):
+                                if q['name'] == 'available':
+                                    current_available = q['quantity']
+                                    break
                             break
                 
                 variants[node['sku']] = {
@@ -257,7 +265,7 @@ def find_and_update_smart(changes):
                     # Check for GraphQL errors
                     if 'errors' in result_data:
                         print(f"  ⚠️ GraphQL errors in mutation:")
-                        for error in result_data['errors'][:5]:  # Max 5 errors
+                        for error in result_data['errors'][:5]:
                             print(f"     - {error.get('message', error)}")
                     
                     # Check mutation results
